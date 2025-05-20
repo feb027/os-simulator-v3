@@ -603,3 +603,391 @@ Setiap komponen aplikasi di sini dirancang untuk dirender sebagai `children` di 
 *   **Refaktorisasi**: Beberapa komponen (seperti `FileExplorer.jsx` dan `desktopStore.js`) cukup besar dan mungkin mendapat manfaat dari pemecahan lebih lanjut menjadi modul atau hook kustom yang lebih kecil untuk meningkatkan keterbacaan dan pemeliharaan.
 
 Secara keseluruhan, aplikasi ini adalah simulasi desktop yang cukup komprehensif dengan banyak fitur interaktif yang menunjukkan penggunaan React, Zustand, dan Tailwind CSS secara efektif. Ini adalah basis yang solid untuk eksplorasi lebih lanjut dan penambahan fitur.
+
+
+## Detail untuk Presentasi per Fitur/Kontributor
+
+Bagian ini bertujuan untuk memberikan poin-poin penting yang bisa digunakan saat mempresentasikan kontribusi pada fitur-fitur spesifik aplikasi.
+
+### 1. `desktopStore.js` (Manajemen State Inti)
+
+*   **Kontributor**: (Siapa pun yang bertanggung jawab utama atas desain dan implementasi store)
+*   **Core Responsibilities**:
+    *   Sebagai "single source of truth" untuk hampir semua data dinamis dan status UI aplikasi.
+    *   Mengelola ikon desktop, jendela yang terbuka (posisi, ukuran, z-index, status), simulasi file system (FS), clipboard, dan berbagai pengaturan pengguna.
+    *   Menyediakan semua fungsi (actions) untuk memodifikasi state ini secara aman dan terprediksi.
+*   **Key Interactions**: Hampir semua komponen berinteraksi dengan store ini.
+    *   **Membaca State**: Komponen menggunakan hook `useDesktopStore(state => state.someValue)` untuk memilih (subscribe) hanya pada bagian state yang mereka butuhkan. Ini mengoptimalkan re-render.
+    *   **Memperbarui State**: Komponen memanggil actions yang diekspor dari store (misalnya, `useDesktopStore.getState().openWindow(...)` atau `const openWindow = useDesktopStore(state => state.openWindow); openWindow(...)`).
+*   **Teknologi Kunci**: Zustand, Immer, `zustand/middleware/persist`.
+    *   **Zustand**: Menyediakan kerangka kerja store yang ringan dan berbasis hook.
+    *   **Immer**: Digunakan dalam actions (`set(produce(draft => { ... }))`) untuk pembaruan state immutable yang lebih mudah ditulis dan dibaca.
+    *   **Persist Middleware**: Digunakan untuk menyimpan bagian state tertentu (ikon, FS, pengaturan) ke `localStorage` browser, sehingga data tetap ada antar sesi. Logika `onRehydrateStorage` dan `_rehydrate` menangani inisialisasi ulang state non-persisten atau yang memerlukan kalkulasi setelah rehidrasi.
+*   **Struktur State Utama (Contoh)**:
+    *   `icons`: Array objek ikon (id, label, posisi).
+    *   `windows`: Array objek jendela (id, title, size, position, zIndex, context).
+    *   `fs`: Objek besar yang merepresentasikan struktur direktori dan file.
+    *   `cwd`: Current Working Directory.
+    *   `settings`: Objek berisi berbagai pengaturan aplikasi (background, taskbar, night light, dll.).
+*   **Poin Presentasi Penting**:
+    *   Bagaimana Zustand memudahkan manajemen state dibandingkan solusi lain (misalnya, Redux boilerplate).
+    *   Manfaat Immer untuk menjaga immutability tanpa kode yang rumit.
+    *   Pentingnya `partialize` dalam middleware `persist` untuk memilih apa yang disimpan.
+    *   Contoh alur: pengguna mengklik ikon -> `Desktop.jsx` memanggil `openWindow` -> `openWindow` di store memperbarui state `windows` -> komponen `Desktop.jsx` (yang subscribe ke `windows`) akan re-render untuk menampilkan jendela baru.
+    *   Bagaimana operasi file system (misalnya, `createDirectory`, `writeFile`) diimplementasikan sebagai actions yang memodifikasi state `fs`.
+
+### 2. `FileExplorer.jsx` (Aplikasi File Explorer)
+
+*   **Kontributor**: (Siapa yang membuat File Explorer)
+*   **Core Responsibilities**:
+    *   Menyediakan antarmuka visual untuk berinteraksi dengan file system simulasi yang dikelola di `desktopStore.js`.
+    *   Menampilkan isi direktori, navigasi antar direktori, operasi file/folder (create, rename, delete, copy, cut, paste), pencarian, dan drag-and-drop.
+*   **Key Interactions with `desktopStore`**:
+    *   **Membaca**: `fs` (seluruh file system), `cwd` (current working directory), `fileExplorerSettings` (default view, show hidden files), `clipboard` (untuk operasi paste).
+    *   **Actions Dipanggil**: `listDirectory`, `setCwd`, `createDirectory`, `createFile`, `renameItem`, `deleteItem`, `moveItem`, `copyItem`, `setClipboard`, `openWindow` (untuk membuka file), `showConfirmation` (untuk delete), `setFileExplorerSetting`.
+*   **Key Internal Logic/State**:
+    *   `currentPath`: State lokal untuk path direktori yang sedang ditampilkan.
+    *   `items`: State lokal untuk daftar file/folder di `currentPath` (diambil dari `listDirectory`).
+    *   `selectedItemNames`: State lokal (Set) untuk melacak item yang dipilih.
+    *   `viewMode`: State lokal ('grid' atau 'list').
+    *   `debouncedSearchTerm`: Untuk pencarian dengan debounce.
+    *   Logika untuk breadcrumb path yang dapat diedit.
+    *   Logika kompleks untuk seleksi item (single, ctrl+click, shift+click).
+    *   Logika Drag-and-Drop (internal, ke sidebar, dan dari OS host).
+        *   Drag dari OS: Menggunakan `FileReader` API untuk membaca konten file gambar dan teks.
+*   **User Interaction Flow (Contoh: Membuat Folder Baru)**:
+    1.  Pengguna klik kanan di area kosong -> `ContextMenu` muncul.
+    2.  Pengguna pilih "New Folder" -> `InputModal` terbuka.
+    3.  Pengguna ketik nama folder, tekan Enter -> `handleCreateFolderSubmit` dipanggil.
+    4.  `handleCreateFolderSubmit` memanggil action `createDirectory(currentPath, folderName)` dari `desktopStore`.
+    5.  `desktopStore` memperbarui state `fs`.
+    6.  `FileExplorer` (yang subscribe ke `fs` atau `currentPath`) akan re-render dan menampilkan folder baru (karena `useEffect` yang memanggil `listDirectory` akan berjalan lagi).
+*   **Dependencies**: `FileTreeSidebar.jsx`, `ContextMenu.jsx`, `InputModal.jsx`, `ConfirmModal.jsx`, `SimpleDisplayModal.jsx`.
+*   **Poin Presentasi Penting**:
+    *   Bagaimana data file system dari store ditampilkan dan diperbarui secara reaktif.
+    *   Implementasi navigasi (breadcrumb, double-click, up button).
+    *   Mekanisme seleksi item (tunggal, ganda, range).
+    *   Detail implementasi drag-and-drop (antar item, ke sidebar, dari OS).
+    *   Integrasi dengan berbagai modal untuk operasi file.
+    *   Penggunaan `FileTreeSidebar` untuk navigasi hierarkis.
+
+### 3. `TextEditor.jsx` (Aplikasi Editor Teks)
+
+*   **Kontributor**: (Siapa yang membuat Text Editor)
+*   **Core Responsibilities**:
+    *   Menyediakan fungsionalitas dasar untuk membuat, membuka, mengedit, dan menyimpan file teks dalam file system simulasi.
+    *   Menampilkan nomor baris dan informasi status (nama file, status dirty, jumlah kata/karakter, posisi kursor).
+*   **Key Interactions with `desktopStore`**:
+    *   **Membaca**: `activeWindowId` (untuk shortcut), `readFile` (untuk membuka file), `openSaveAsDialog` (untuk "Save As"), `writeFile` (untuk menyimpan).
+    *   **Actions Dipanggil**: `readFile`, `writeFile`, `openSaveAsDialog`, `markWindowDirty`, `markWindowClean`, `showConfirmation` (saat menutup jendela dirty).
+*   **Key Internal Logic/State**:
+    *   `currentFilePath`: Path file yang sedang diedit.
+    *   `content`: Isi teks editor (`<textarea>`).
+    *   `isDirty`: Apakah ada perubahan yang belum disimpan.
+    *   `isLoading`, `error`: Untuk status loading file.
+    *   `lineCount`, `cursorPosition`: Untuk ditampilkan di status bar.
+    *   `handleContentChange`: Memperbarui `content` dan `isDirty`, memanggil `markWindowDirty`.
+    *   `handleSave`: Menyimpan file (atau memicu `triggerSaveAs` jika file baru).
+    *   `triggerSaveAs`: Membuka dialog `SaveAsDialog` dari store.
+    *   `performSave`: Callback untuk `SaveAsDialog` yang benar-benar melakukan penyimpanan.
+    *   Sinkronisasi scroll antara nomor baris dan area teks.
+*   **User Interaction Flow (Contoh: Menyimpan File Baru)**:
+    1.  Pengguna mengetik di textarea -> `handleContentChange` set `isDirty` true, `markWindowDirty` dipanggil.
+    2.  Pengguna pilih "File > Save" atau Ctrl+S.
+    3.  `handleSave` dipanggil. Karena `currentFilePath` null, `triggerSaveAs` dipanggil.
+    4.  `triggerSaveAs` memanggil `openSaveAsDialog` dari `desktopStore` dengan callback `performSave`.
+    5.  `SaveAsDialog` muncul. Pengguna memilih path, nama file, klik "Save".
+    6.  Callback `onSave` dari `SaveAsDialog` (yaitu `performSave` di `TextEditor`) dipanggil dengan `fullPath`.
+    7.  `performSave` memanggil `writeFile(fullPath, content)` dari `desktopStore`.
+    8.  Jika sukses, `currentFilePath` di-update, `isDirty` jadi false, `markWindowClean` dipanggil, judul jendela di-update.
+*   **Dependencies**: `Window.jsx` (menerima `context` termasuk `updateTitle`), `SaveAsDialog.jsx` (melalui `desktopStore`), Headless UI (`Menu`).
+*   **Poin Presentasi Penting**:
+    *   Manajemen state `isDirty` dan integrasinya dengan `desktopStore` (`dirtyWindowIds`, `markWindowDirty/Clean`).
+    *   Alur kerja "Save" vs "Save As" dan interaksi dengan `SaveAsDialog`.
+    *   Bagaimana judul jendela di-update secara dinamis untuk mencerminkan nama file dan status dirty.
+    *   Implementasi nomor baris dan sinkronisasi scroll.
+
+### 4. `Terminal.jsx` (Aplikasi Terminal)
+
+*   **Kontributor**: (Siapa yang membuat Terminal)
+*   **Core Responsibilities**:
+    *   Mensimulasikan antarmuka baris perintah (CLI) untuk berinteraksi dengan file system simulasi.
+    *   Mendukung perintah dasar seperti `ls`, `cd`, `mkdir`, `touch`, `cat`, `rm`, `mv`, `cp`, `pwd`, `echo`, `clear`, `help`.
+    *   Menyediakan histori perintah dan fitur auto-completion dasar.
+*   **Key Interactions with `desktopStore`**:
+    *   **Membaca**: `cwd` (Current Working Directory), `fs` (untuk `ls` dan auto-completion).
+    *   **Actions Dipanggil**: `setCwd`, `listDirectory`, `createDirectory`, `createFile`, `deleteItem`, `readFile`, `writeFile`, `moveItem`, `copyItem`.
+*   **Key Internal Logic/State**:
+    *   `history`: Array string/objek yang merepresentasikan output yang ditampilkan.
+    *   `input`: Teks yang sedang diketik pengguna.
+    *   `commandHistory`, `historyIndex`: Untuk navigasi histori perintah dengan panah atas/bawah.
+    *   `handleInputSubmit`: Fungsi utama yang mem-parse input, menjalankan perintah (via `switch` statement), dan memperbarui `history`.
+    *   Logika auto-completion (Tab): Memeriksa apakah kursor pada posisi perintah atau argumen, mencocokkan dengan daftar perintah atau isi direktori saat ini.
+    *   Animasi baris output menggunakan Framer Motion.
+*   **User Interaction Flow (Contoh: `ls` dan `cd`)**:
+    1.  Pengguna ketik `ls`, tekan Enter.
+    2.  `handleInputSubmit` mem-parse perintah `ls`.
+    3.  Memanggil `listDirectory(cwd)` dari `desktopStore`.
+    4.  Hasilnya diformat dan ditambahkan ke state `history` Terminal.
+    5.  Pengguna ketik `cd MyFolder`, tekan Enter.
+    6.  `handleInputSubmit` mem-parse perintah `cd` dan argumen `MyFolder`.
+    7.  Memanggil `setCwd('MyFolder')` dari `desktopStore`.
+    8.  `desktopStore` memperbarui state `cwd`.
+    9.  Prompt Terminal berikutnya akan menampilkan CWD yang baru.
+*   **Poin Presentasi Penting**:
+    *   Bagaimana perintah pengguna di-parse dan dipetakan ke aksi di `desktopStore`.
+    *   Implementasi output `ls` yang diformat.
+    *   Mekanisme auto-completion untuk perintah dan path.
+    *   Pengelolaan histori perintah.
+
+### 5. `Settings.jsx` (Aplikasi Pengaturan)
+
+*   **Kontributor**: (Siapa yang membuat Settings)
+*   **Core Responsibilities**:
+    *   Menyediakan antarmuka pengguna untuk mengubah berbagai pengaturan aplikasi yang disimpan di `desktopStore.js`.
+    *   Pengaturan meliputi: Latar Belakang Desktop, Mode Night Light, Kunci Taskbar, Pengaturan File Explorer (tampilan default, file tersembunyi).
+*   **Key Interactions with `desktopStore`**:
+    *   **Membaca**: `desktopBackground`, `isNightLightEnabled`, `isTaskbarLocked`, `fileExplorerSettings`.
+    *   **Actions Dipanggil**: `setDesktopBackground`, `toggleNightLight`, `toggleTaskbarLock`, `setFileExplorerSetting`, `updateFileExplorerSettings`.
+*   **Key Internal Logic/State**:
+    *   `activeSection`: State lokal untuk melacak bagian pengaturan mana yang sedang ditampilkan.
+    *   `renderSectionContent()`: Fungsi yang merender UI untuk bagian pengaturan yang aktif.
+    *   Untuk upload gambar latar belakang: Menggunakan input file tersembunyi dan `FileReader` API untuk membaca gambar sebagai Data URL sebelum menyimpannya ke store.
+*   **User Interaction Flow (Contoh: Mengubah Latar Belakang)**:
+    1.  Pengguna navigasi ke bagian "Display" di Settings.
+    2.  Pengguna memilih salah satu opsi gradient -> `setDesktopBackground({ type: 'gradient', value: 'gradient-1' })` dipanggil.
+    3.  Atau, pengguna upload gambar -> `handleFileChange` membaca file, memvalidasi, lalu memanggil `setDesktopBackground({ type: 'custom', customUrl: imageDataUrl })`.
+    4.  `desktopStore` memperbarui state `desktopBackground`.
+    5.  Komponen `Desktop.jsx` (yang subscribe ke `desktopBackground`) akan re-render dan menampilkan latar belakang baru.
+*   **Poin Presentasi Penting**:
+    *   Struktur UI dengan sidebar navigasi dan area konten dinamis.
+    *   Bagaimana setiap kontrol UI (toggle, radio button, file input) langsung memanggil action di `desktopStore` untuk memperbarui pengaturan secara real-time.
+    *   Integrasi dengan `localStorage` via `persist` middleware di `desktopStore` membuat pengaturan ini bertahan.
+
+### 6. Komponen Visual Inti (`Desktop.jsx`, `Taskbar.jsx`, `Window.jsx`)
+
+*   **Kontributor**: (Siapa yang mengerjakan komponen UI inti ini)
+*   **`Desktop.jsx`**: Bertindak sebagai container utama. Merender Taskbar, semua `DraggableDesktopIcon`, dan semua `Window` (untuk aplikasi yang terbuka dan tidak diminimalkan). Mengelola latar belakang dan menampilkan modal global (`ConfirmModal`, `SaveAsDialog`) serta notifikasi (`Toaster`). Menggunakan `getAppComponent` untuk merender konten aplikasi di dalam jendela.
+*   **`Taskbar.jsx`**: Menampilkan tombol Start, ikon aplikasi yang berjalan/di-pin, dan system tray. Mengelola logika klik pada tombol aplikasi (membuka, meminimalkan, membawa ke depan). Menampilkan `ContextMenu` untuk taskbar dan tombol aplikasi. Mengelola visibilitas panel system tray (`DateTimeWidget`, `VolumeControl`, `WifiPanel`).
+*   **`Window.jsx`**: Komponen generik untuk setiap jendela aplikasi. Menggunakan `react-draggable` dan `react-resizable` untuk fungsionalitas drag & resize. Menampilkan header dengan judul dan tombol kontrol (minimize, maximize, close). Memanggil `bringToFront` saat diklik. Menerima `children` (komponen aplikasi) dan melewatkan `context` (seperti `updateTitle` callback).
+*   **Key Interactions with `desktopStore`**: Sangat banyak. Membaca daftar ikon, jendela, status Start Menu, pengaturan taskbar, dll. Memanggil actions seperti `openWindow`, `closeWindow`, `toggleMinimize`, `bringToFront`, `moveIcon`, `toggleStartMenu`.
+*   **Poin Presentasi Penting**:
+    *   Bagaimana `Desktop.jsx` mengatur dan merender semua elemen UI utama secara dinamis berdasarkan state dari `desktopStore`.
+    *   Penggunaan Framer Motion (`AnimatePresence`, `motion.div`) untuk animasi jendela, Start Menu, dan panel.
+    *   Logika di `Taskbar.jsx` untuk menampilkan tombol aplikasi yang relevan dan menangani interaksinya.
+    *   Bagaimana `Window.jsx` menyediakan fungsionalitas jendela generik untuk semua aplikasi.
+    *   Alur bagaimana `getAppComponent` di `Desktop.jsx` digunakan untuk men-translasikan `iconId` menjadi komponen aplikasi yang sebenarnya untuk dirender di dalam `Window.jsx`.
+
+### 7. `ImageViewer.jsx` (Aplikasi Penampil Gambar)
+
+*   **Kontributor**: (Siapa yang membuat ImageViewer)
+*   **Core Responsibilities**:
+    *   Menampilkan file gambar yang dibuka dari File Explorer.
+    *   Menyediakan fungsionalitas dasar untuk interaksi dengan gambar: zoom, pan (geser), rotasi, reset tampilan, dan fit to screen.
+*   **Key Interactions with `desktopStore`**:
+    *   **Membaca**: `readFile(filePath)` untuk mendapatkan data gambar (diasumsikan sebagai Data URL).
+    *   **Actions Dipanggil**: Tidak ada actions store yang dipanggil secara langsung untuk memodifikasi state global, selain interaksi standar window (close, minimize, dll yang ditangani `Window.jsx`).
+*   **Key Internal Logic/State**:
+    *   `imageDataUrl`: Menyimpan Data URL gambar yang akan ditampilkan.
+    *   `isLoading`, `error`: Untuk status loading gambar.
+    *   `zoom`: Level zoom saat ini.
+    *   `pan`: Objek `{x, y}` untuk posisi pan gambar.
+    *   `isPanning`: Boolean untuk menandakan apakah pengguna sedang menggeser gambar.
+    *   `rotation`: Derajat rotasi gambar.
+    *   `naturalDimensions`: Dimensi asli gambar setelah dimuat.
+    *   `showControls`: Boolean untuk menampilkan/menyembunyikan kontrol gambar.
+    *   **Loading**: `useEffect` untuk memanggil `readFile` saat `filePath` (dari context `Window.jsx`) berubah. Menggunakan `new Image()` untuk mendapatkan dimensi natural.
+    *   **Transformasi CSS**: Menggunakan `transform: translate() scale() rotate()` pada tag `<img>` untuk menerapkan zoom, pan, dan rotasi.
+    *   **Kontrol Interaktif**: Fungsi-fungsi untuk `handleZoomIn`, `handleZoomOut`, `handleResetView`, `handleRotate`, `handleFitToScreen`.
+    *   **Panning Logic**: Event handlers `handleMouseDown`, `handleMouseMove`, `handleMouseUpOrLeave` untuk implementasi geser gambar.
+    *   **Wheel Zoom**: Event listener `wheel` untuk zoom dengan mouse wheel.
+    *   **Keyboard Shortcuts**: Untuk zoom, reset, jika jendela aktif.
+*   **User Interaction Flow (Contoh: Zoom dan Pan)**:
+    1.  Pengguna membuka file gambar -> `ImageViewer` dimuat dengan gambar.
+    2.  Pengguna menggunakan tombol zoom atau mouse wheel -> State `zoom` diperbarui, CSS transform pada gambar berubah.
+    3.  Jika gambar di-zoom lebih besar dari area tampilan, pengguna dapat klik-tahan dan geser mouse -> State `pan` diperbarui, CSS transform `translate()` berubah.
+*   **Dependencies**: `Window.jsx` (menerima `filePath` via `context`).
+*   **Poin Presentasi Penting**:
+    *   Bagaimana gambar dimuat secara asinkron dan dimensi naturalnya didapatkan.
+    *   Implementasi zoom, pan, dan rotasi menggunakan CSS transforms dan state React.
+    *   Logika untuk kontrol interaktif (tombol, mouse wheel, drag-to-pan).
+    *   Manajemen tampilan kontrol gambar (muncul/hilang otomatis).
+
+### 8. Sistem Modal Dialog (`modal/`)
+
+*   **Kontributor**: (Siapa yang mengembangkan sistem modal atau modal utama seperti `SaveAsDialog`)
+*   **Core Responsibilities**:
+    *   Menyediakan komponen UI yang dapat digunakan kembali untuk menampilkan dialog modal yang memblokir interaksi dengan bagian lain aplikasi sampai ditutup.
+    *   Digunakan untuk konfirmasi (`ConfirmModal`), input sederhana (`InputModal`), dialog penyimpanan file kompleks (`SaveAsDialog`), dan tampilan informasi (`SimpleDisplayModal`).
+*   **Key Interactions with `desktopStore`**:
+    *   Visibilitas dan data awal untuk modal global (seperti `ConfirmModal` dan `SaveAsDialog`) seringkali dikelola dalam state di `desktopStore` (misalnya, `confirmationModal.isOpen`, `saveAsDialog.onSave`).
+    *   Actions di `desktopStore` (misalnya, `showConfirmation`, `openSaveAsDialog`, `closeSaveAsDialog`) digunakan untuk mengontrol modal ini dari berbagai bagian aplikasi.
+*   **Key Components & Logic**:
+    *   **`Modal.jsx` (Dasar)**: Menyediakan kerangka umum (overlay, kontainer tengah, judul, tombol tutup opsional). Menangani penutupan saat klik di luar.
+    *   **Turunan Spesifik**: `InputModal`, `ConfirmModal`, `SaveAsDialog`, `SimpleDisplayModal` membangun di atas `Modal.jsx` atau mengimplementasikan strukturnya sendiri dengan logika spesifik untuk jenis interaksi tertentu.
+    *   **`SaveAsDialog.jsx`**: Contoh paling kompleks, melibatkan navigasi tree direktori internal (menggunakan `DirectoryNode.jsx` rekursif), input nama file, dan validasi sebelum memanggil callback `onSave`.
+    *   **Animasi**: Umumnya menggunakan `AnimatePresence` dan `motion.div` untuk animasi masuk/keluar, biasanya dikelola di komponen yang memanggil modal (`Desktop.jsx`) atau di dalam modal yang lebih kompleks.
+*   **User Interaction Flow (Contoh: `ConfirmModal` untuk menghapus file)**:
+    1.  Pengguna mencoba menghapus file di `FileExplorer`.
+    2.  `FileExplorer` memanggil `showConfirmation(title, message, onConfirmCallback)` dari `desktopStore`.
+    3.  `desktopStore` memperbarui state `confirmationModal` menjadi `{ isOpen: true, ... }`.
+    4.  `Desktop.jsx` (yang merender `ConfirmModal` berdasarkan state ini) menampilkan modal.
+    5.  Pengguna mengklik "Confirm" -> `onConfirmCallback` (yang asli dari `FileExplorer`) dijalankan, yang kemudian memanggil `deleteItem` dari store.
+    6.  `hideConfirmation` dipanggil untuk menutup modal.
+*   **Poin Presentasi Penting**:
+    *   Pola umum untuk mengelola state modal (seringkali di store global untuk modal yang dapat dipicu dari mana saja).
+    *   Kegunaan komponen `Modal.jsx` sebagai dasar.
+    *   Struktur dan logika kompleks dari `SaveAsDialog` sebagai studi kasus (navigasi FS internal, validasi, callback).
+    *   Penggunaan `AnimatePresence` untuk pengalaman pengguna yang lebih baik.
+
+### 9. Fungsionalitas Drag and Drop (D&D)
+
+*   **Kontributor**: (Siapa yang mengimplementasikan D&D utama untuk ikon, jendela, atau di File Explorer)
+*   **Core Responsibilities**:
+    *   Memungkinkan pengguna untuk memindahkan elemen UI (ikon desktop, jendela aplikasi) secara visual.
+    *   Memungkinkan operasi file melalui D&D di `FileExplorer` (memindahkan file antar folder, atau dari OS host ke aplikasi).
+*   **Teknologi & Implementasi Kunci**:
+    *   **`react-draggable`**: Digunakan di `DraggableDesktopIcon.jsx` dan `Window.jsx`.
+        *   Menyederhanakan implementasi pemindahan elemen.
+        *   `onStop` callback digunakan untuk memperbarui posisi elemen di `desktopStore` (`moveIcon`, `moveWindow`).
+        *   Opsi seperti `handle` (untuk menentukan area drag) dan `bounds` (untuk membatasi area drag) sangat berguna.
+    *   **D&D Kustom di `FileExplorer.jsx`**:
+        *   **Internal D&D (item ke folder)**: Menggunakan atribut HTML5 `draggable` pada item. Event handlers `onDragStart`, `onDragOver`, `onDrop`, `onDragLeave` diimplementasikan pada item dan target folder untuk mengelola state drag (`draggedItemNames`, `dragOverFolderName`) dan memanggil aksi store (`moveItem`) saat drop.
+        *   **D&D ke `FileTreeSidebar.jsx`**: Mirip dengan D&D internal, tapi target drop adalah node direktori di sidebar.
+        *   **D&D dari OS Host**: Event handlers `onDragEnter`, `onDragOver`, `onDragLeave`, `onDrop` pada container File Explorer.
+            *   Menggunakan `event.dataTransfer.files` untuk mengakses file yang di-drag dari OS.
+            *   `FileReader` API (asinkron) digunakan untuk membaca konten file (gambar sebagai Data URL, teks sebagai plain text).
+            *   Memanggil `createFile` dari `desktopStore` untuk menambahkan file ke FS simulasi.
+*   **User Interaction Flow (Contoh: Memindahkan ikon desktop)**:
+    1.  Pengguna klik-tahan pada `DraggableDesktopIcon`.
+    2.  `react-draggable` mengambil alih dan menampilkan visual pemindahan.
+    3.  Pengguna melepas tombol mouse.
+    4.  Callback `onStop` dari `<Draggable>` dipicu, mengirimkan posisi baru.
+    5.  `DraggableDesktopIcon` memanggil `moveIcon(iconId, newPosition)` dari `desktopStore`.
+    6.  `desktopStore` memperbarui posisi ikon di state `icons`.
+    7.  Ikon tetap di posisi baru (karena `defaultPosition` pada render berikutnya akan mengambil dari store).
+*   **Poin Presentasi Penting**:
+    *   Perbedaan antara menggunakan library seperti `react-draggable` untuk D&D elemen UI umum dan implementasi D&D HTML5 kustom untuk skenario yang lebih kompleks (seperti di File Explorer).
+    *   Bagaimana D&D di File Explorer menangani berbagai sumber (internal, OS) dan target (folder di main view, folder di sidebar).
+    *   Penggunaan `FileReader` untuk mengimpor file dari OS host dan tantangan asinkronnya.
+    *   Pentingnya feedback visual selama operasi D&D (misalnya, menyorot target drop).
+
+### 10. Sistem Menu Konteks (`ContextMenu.jsx`)
+
+*   **Kontributor**: (Siapa yang membuat komponen `ContextMenu.jsx` atau mengintegrasikannya secara luas)
+*   **Core Responsibilities**:
+    *   Menyediakan komponen UI generik dan dapat digunakan kembali untuk menampilkan menu klik kanan (konteks) di berbagai bagian aplikasi.
+    *   Konten menu bersifat dinamis, tergantung pada elemen yang diklik kanan.
+*   **Key Interactions with `desktopStore`**:
+    *   State untuk `ContextMenu` itu sendiri (`contextMenu: { visible, x, y, items, ... }`) dikelola di `desktopStore`.
+    *   Komponen yang ingin menampilkan menu konteks (misalnya, `Desktop.jsx`, `Taskbar.jsx`, `FileExplorer.jsx`) akan memanggil sebuah action atau langsung mem-set state `contextMenu` di store dengan item menu yang relevan dan koordinat.
+*   **Key Component Logic (`ContextMenu.jsx`)**:
+    *   **Props**: Menerima `x`, `y` (posisi), `items` (array objek menu: `{ label, onClick, disabled?, separator? }`), `onClose`.
+    *   **Rendering**: Dirender sebagai `div` yang diposisikan secara absolut (atau fixed) berdasarkan `x`, `y`.
+    *   **Item Menu**: Setiap item dirender sebagai tombol atau pemisah. `onClick` handler dari item dipanggil saat diklik.
+    *   **Auto-Close**: `useEffect` menambahkan event listener global (`mousedown`, `keydown` untuk Escape) untuk menutup menu secara otomatis saat pengguna mengklik di luar atau menekan Escape. Listener ini dibersihkan saat unmount.
+    *   Mencegah menu konteks browser default muncul di atasnya (`e.preventDefault()` pada `onContextMenu`).
+*   **User Interaction Flow (Contoh: Klik kanan di Desktop)**:
+    1.  Pengguna klik kanan pada `Desktop.jsx`.
+    2.  Handler `onContextMenu` di `Desktop.jsx` dipicu.
+    3.  Handler ini membuat daftar item menu yang relevan (misalnya, "New Folder", "Display settings").
+    4.  Handler memanggil `setContextMenu({ visible: true, x: e.clientX, y: e.clientY, items: desktopMenuItems, ... })` dari `desktopStore`.
+    5.  `Desktop.jsx` merender `<ContextMenu ... />` karena state `contextMenu.visible` sekarang true.
+    6.  Pengguna mengklik item menu, misalnya "New Folder".
+    7.  `onClick` callback untuk "New Folder" dijalankan (misalnya, membuka `InputModal`).
+    8.  `onClose` dari `ContextMenu` (yang memanggil `setContextMenu({ visible: false, ... })`) dipanggil, menyembunyikan menu.
+*   **Poin Presentasi Penting**:
+    *   Desain generik dari `ContextMenu.jsx` yang memungkinkannya digunakan kembali di banyak tempat.
+    *   Bagaimana state menu konteks (visibilitas, posisi, item) dikelola secara terpusat (di `desktopStore`).
+    *   Mekanisme untuk menutup menu secara otomatis.
+    *   Contoh bagaimana komponen berbeda (Desktop, Taskbar, File Explorer) menyediakan set item menu yang berbeda untuk konteksnya masing-masing.
+
+## Konsep Teknis Dasar (Untuk Pemula)
+
+Bagian ini menjelaskan beberapa konsep teknis dasar yang relevan dengan proyek ini, ditujukan untuk mereka yang mungkin baru dalam pengembangan web modern atau React.
+
+*   **DOM (Document Object Model)**:
+    *   DOM adalah representasi terstruktur dari dokumen HTML (atau XML) dalam bentuk pohon objek. Setiap elemen, atribut, dan teks dalam HTML menjadi sebuah "node" di pohon DOM.
+    *   Browser menggunakan DOM untuk merender halaman web. JavaScript dapat berinteraksi dengan DOM untuk membaca atau memodifikasi konten, struktur, dan style halaman secara dinamis.
+    *   Contoh: Mengubah teks sebuah paragraf, menambah elemen baru, atau mengubah warna tombol.
+
+*   **Virtual DOM (VDOM)**:
+    *   Memanipulasi DOM secara langsung seringkali lambat dan mahal secara performa.
+    *   React menggunakan Virtual DOM, yang merupakan representasi ringan dari DOM aktual yang disimpan di memori.
+    *   Ketika state sebuah komponen React berubah, React pertama-tama membuat VDOM baru yang merefleksikan perubahan tersebut.
+    *   Kemudian, React membandingkan VDOM baru ini dengan VDOM sebelumnya (proses ini disebut "diffing" atau "reconciliation").
+    *   React lalu menghitung cara paling efisien untuk memperbarui DOM aktual agar sesuai dengan VDOM baru, hanya menerapkan perubahan yang benar-benar diperlukan. Ini membuat pembaruan UI jauh lebih cepat.
+
+*   **JSX (JavaScript XML)**:
+    *   JSX adalah ekstensi sintaks untuk JavaScript yang memungkinkan penulisan struktur mirip HTML langsung di dalam kode JavaScript. Ini bukan HTML murni, melainkan "gula sintaksis" untuk `React.createElement()`.
+    *   Contoh: `const element = <h1>Hello, world!</h1>;` akan diubah (ditranspilasi) menjadi pemanggilan fungsi JavaScript.
+    *   Membuat penulisan komponen React menjadi lebih intuitif dan mudah dibaca karena mirip dengan struktur UI yang diinginkan.
+
+*   **Komponen React**:
+    *   Unit dasar pembangun UI di React. Komponen adalah potongan kode independen yang dapat digunakan kembali, bertanggung jawab untuk merender sebagian dari UI.
+    *   Bisa berupa fungsi JavaScript (Functional Components, yang paling umum digunakan saat ini) atau kelas ES6 (Class Components).
+    *   Menerima input berupa `props` dan dapat memiliki `state` internal.
+
+*   **Props (Properties)**:
+    *   Cara komponen menerima data dari komponen induknya. Props bersifat read-only (tidak boleh diubah oleh komponen penerima).
+    *   Mekanisme untuk kustomisasi dan konfigurasi komponen.
+    *   Contoh: `<Button label="Klik Saya" color="blue" />`. Di sini, `label` dan `color` adalah props untuk komponen `Button`.
+
+*   **State**:
+    *   Data internal yang dikelola oleh sebuah komponen. State dapat berubah seiring waktu sebagai respons terhadap interaksi pengguna atau event lainnya.
+    *   Ketika state sebuah komponen berubah, React secara otomatis akan me-render ulang komponen tersebut (dan anak-anaknya jika perlu) untuk mencerminkan state baru.
+    *   **State Lokal (React `useState` Hook)**: Digunakan untuk data yang hanya relevan bagi satu komponen dan tidak perlu dibagikan.
+    *   **State Global (Zustand)**: Digunakan untuk data yang perlu diakses atau dimodifikasi oleh banyak komponen di berbagai bagian aplikasi (misalnya, daftar jendela yang terbuka, pengaturan pengguna). `desktopStore.js` adalah contoh state global dalam proyek ini.
+
+*   **React Hooks**:
+    *   Fitur yang memungkinkan penggunaan state dan fitur React lainnya di dalam Functional Components (tanpa perlu menulis Class Components).
+    *   Beberapa hook bawaan yang penting:
+        *   **`useState`**: Untuk menambahkan state lokal ke komponen. Mengembalikan pasangan nilai: state saat ini dan fungsi untuk memperbaruinya. Contoh: `const [count, setCount] = useState(0);`. Digunakan secara luas untuk mengelola data internal komponen yang tidak perlu global.
+        *   **`useEffect`**: Untuk menjalankan "side effects" setelah rendering (misalnya, mengambil data, berlangganan event, memanipulasi DOM secara manual, mengatur timer). Dapat juga membersihkan efek tersebut (misalnya, membatalkan langganan event, membersihkan timer) dengan mengembalikan sebuah fungsi. Contoh: `useEffect(() => { document.title = \`Anda klik \${count} kali\`; return () => { /* cleanup */ }; }, [count]);`. Dependency array (`[count]`) menentukan kapan efek dijalankan ulang.
+        *   **`useContext`**: Untuk mengakses data dari React Context API (cara lain untuk berbagi state tanpa prop drilling, meskipun Zustand adalah pilihan utama untuk state global di proyek ini). Contoh: `const theme = useContext(ThemeContext);`.
+        *   **`useRef`**: Untuk mendapatkan referensi langsung ke elemen DOM (misalnya, untuk memfokuskan input atau mengukur ukuran elemen) atau untuk menyimpan nilai mutable yang tidak memicu re-render saat diubah. Contoh: `const inputEl = useRef(null); inputEl.current.focus();`.
+        *   **`useMemo`**: Untuk memoizing (mengingat) hasil kalkulasi yang mahal. Fungsi yang dilewatkan ke `useMemo` hanya akan dijalankan ulang jika salah satu dependencies-nya berubah. Ini berguna untuk optimasi performa. Contoh: `const expensiveValue = useMemo(() => computeExpensiveValue(a, b), [a, b]);`.
+        *   **`useCallback`**: Untuk memoizing fungsi callback. Ini berguna ketika melewatkan callback ke komponen anak yang dioptimalkan (misalnya, dengan `React.memo`) untuk mencegah re-render yang tidak perlu karena referensi fungsi berubah setiap render. Contoh: `const memoizedCallback = useCallback(() => { doSomething(a, b); }, [a, b]);`.
+    *   Pengembang juga dapat membuat **Custom Hooks** untuk mengekstrak logika komponen yang dapat digunakan kembali (misalnya, hook untuk menangani input form, hook untuk mengambil data dari API, atau hook untuk mengelola logika UI tertentu).
+
+*   **Immutability (Keabadian)**:
+    *   Konsep di mana data tidak diubah setelah dibuat. Setiap kali perubahan diperlukan, salinan baru dari data dibuat dengan perubahan tersebut, sementara data asli tetap tidak tersentuh.
+    *   **Mengapa penting di React/Zustand?**: React menggunakan perbandingan referensi (shallow comparison) untuk mendeteksi perubahan state atau props. Jika Anda memodifikasi objek atau array secara langsung (mutasi), referensinya tidak berubah, sehingga React mungkin tidak mendeteksi perubahan dan tidak me-render ulang UI.
+    *   Dengan immutability, setiap perubahan menghasilkan objek/array baru dengan referensi baru, memudahkan React untuk mendeteksi perubahan.
+    *   **Immer**: Library yang digunakan bersama Zustand dalam proyek ini untuk menyederhanakan pembaruan state yang immutable. Immer memungkinkan Anda menulis kode seolah-olah Anda melakukan mutasi langsung pada "draft" state, dan Immer akan secara otomatis menghasilkan state baru yang immutable di belakang layar.
+
+*   **Store (dalam konteks State Management)**:
+    *   Sebuah objek JavaScript terpusat yang menyimpan state global aplikasi.
+    *   Komponen dapat "berlangganan" (subscribe) ke bagian tertentu dari store. Ketika bagian state tersebut berubah, hanya komponen yang berlangganan yang akan di-render ulang.
+    *   Zustand menyediakan fungsi `create` untuk membuat store. Store ini berisi state dan "actions" (fungsi untuk memodifikasi state).
+    *   Dalam proyek ini, `desktopStore.js` adalah store utama.
+
+*   **Event Handling di React**:
+    *   Mirip dengan event handling di HTML DOM, tetapi dengan beberapa perbedaan sintaks (misalnya, event ditulis dalam camelCase seperti `onClick`, dan Anda meneruskan fungsi sebagai event handler daripada string).
+    *   React menggunakan "synthetic events", yang merupakan wrapper di sekitar event asli browser untuk memastikan konsistensi perilaku di semua browser.
+    *   Contoh: `<button onClick={handleClick}>Klik Saya</button>`.
+
+*   **Component Lifecycle (Singkat)**:
+    *   Meskipun hooks seperti `useEffect` kini menangani banyak aspek lifecycle, konsep dasarnya adalah bahwa komponen memiliki beberapa fase: Mounting (ditambahkan ke DOM), Updating (di-render ulang karena perubahan props/state), dan Unmounting (dihapus dari DOM).
+    *   `useEffect` dapat meniru perilaku ini. Misalnya, `useEffect(() => { /* mounting & updating */ return () => { /* unmounting */ } }, [dependencies]);`.
+
+*   **Asynchronous Operations (Operasi Asinkron)**:
+    *   JavaScript secara default bersifat single-threaded, artinya ia menjalankan satu operasi pada satu waktu. Operasi asinkron memungkinkan program untuk memulai tugas yang memakan waktu (seperti mengambil data dari server, membaca file, atau timer) tanpa memblokir thread utama.
+    *   **Promises**: Objek yang merepresentasikan penyelesaian (atau kegagalan) eventual dari operasi asinkron. Promise memiliki state: `pending`, `fulfilled` (berhasil), atau `rejected` (gagal). Metode `.then()` digunakan untuk menangani hasil sukses, dan `.catch()` untuk menangani error.
+    *   **`async/await`**: Sintaks yang dibangun di atas Promises untuk membuat kode asinkron terlihat dan berperilaku sedikit lebih seperti kode sinkron, membuatnya lebih mudah dibaca. Fungsi yang dideklarasikan dengan `async` secara implisit mengembalikan Promise. Keyword `await` digunakan di dalam fungsi `async` untuk menunggu Promise selesai.
+    *   Contoh: `async function fetchData() { try { const response = await fetch(\'/api/data\'); const data = await response.json(); console.log(data); } catch (error) { console.error(\'Gagal fetch data:\', error); } }`.
+    *   Dalam proyek ini, `FileReader` API (digunakan di File Explorer untuk membaca file yang di-drag dari OS) adalah contoh operasi asinkron yang berbasis event callback, yang bisa juga di-wrap dalam Promise jika diinginkan.
+
+*   **Styling di React**:
+    *   Ada banyak cara untuk menata gaya komponen React. Proyek ini menggunakan kombinasi:
+        *   **Tailwind CSS**: Framework utility-first CSS yang utama. Kelas utilitas diterapkan langsung di JSX (misalnya, `<div className="bg-blue-500 p-4">`). Ini mempercepat pengembangan dan menjaga konsistensi.
+        *   **File CSS Global/Spesifik**: `index.css` berisi impor Tailwind dan beberapa style global. `App.css` berisi style spesifik lainnya. Ini berguna untuk style yang sulit dicapai hanya dengan utilitas atau untuk menargetkan elemen yang tidak langsung dikontrol React.
+        *   Metode lain yang umum (tidak dominan di sini): CSS Modules (file CSS lokal per komponen), CSS-in-JS (library seperti Styled Components atau Emotion).
+
+*   **Error Handling (Dasar)**:
+    *   Penanganan error penting untuk aplikasi yang tangguh. Beberapa pendekatan dasar di React/JavaScript:
+        *   **`try...catch` blocks**: Untuk menangani error dari kode sinkron atau dari `await`-ing Promises.
+        *   **`.catch()` pada Promises**: Untuk menangani error yang terjadi dalam rantai Promise.
+        *   **Validasi Input**: Mencegah error dengan memvalidasi input pengguna sebelum diproses.
+        *   **Conditional Rendering**: Menampilkan pesan error atau UI alternatif berdasarkan state error.
+        *   **Error Boundaries (React)**: Komponen React khusus yang menangkap error JavaScript di mana saja dalam tree komponen anaknya, mencatat error tersebut, dan menampilkan UI fallback daripada membuat seluruh aplikasi crash. Proyek ini mungkin belum secara eksplisit menggunakan Error Boundaries, tetapi ini adalah konsep penting untuk aplikasi React yang lebih besar.
